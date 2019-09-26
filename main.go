@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"flag"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"time"
@@ -21,6 +22,17 @@ var (
 	listenAddress string
 )
 
+func sendError(w http.ResponseWriter, err error) {
+	data := make(map[string]interface{})
+	data["time"] = time.Now().Format(time.RFC3339)
+	data["app"] = "simple-http"
+	data["error"] = err.Error()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusInternalServerError)
+	json.NewEncoder(w).Encode(data)
+}
+
 func handleRequest(w http.ResponseWriter, req *http.Request) {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -31,10 +43,28 @@ func handleRequest(w http.ResponseWriter, req *http.Request) {
 
 	resp, err := client.Get(serviceURL)
 	if err != nil {
-		log.Printf("error get: %+v\n", err)
+		sendError(w, err)
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			sendError(w, err)
+			return
+		}
+
+		data := make(map[string]interface{})
+		data["time"] = time.Now().Format(time.RFC3339)
+		data["app"] = "simple-http"
+		data["response"] = string(body)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		json.NewEncoder(w).Encode(data)
+		return
+	}
 
 	// Add data
 	data := make(map[string]interface{})
