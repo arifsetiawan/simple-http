@@ -5,6 +5,11 @@ Simple HTTP app that send GET request to specified service url
 
 ## Development
 
+Build
+```
+go build -o ./bin/simple-http
+```
+
 Build docker
 
 ```

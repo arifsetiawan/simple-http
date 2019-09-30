@@ -20,6 +20,15 @@ const (
 var (
 	serviceURL    string
 	listenAddress string
+	traceHeaders  = []string{
+		"X-Ot-Span-Context",
+		"X-Request-Id",
+		"X-B3-TraceId",
+		"X-B3-SpanId",
+		"X-B3-ParentSpanId",
+		"X-B3-Sampled",
+		"X-B3-Flags",
+	}
 )
 
 func sendError(w http.ResponseWriter, err error) {
@@ -41,7 +50,22 @@ func handleRequest(w http.ResponseWriter, req *http.Request) {
 	}
 	client := &http.Client{Transport: transport}
 
-	resp, err := client.Get(serviceURL)
+	serviceReq, err := http.NewRequest("GET", serviceURL, nil)
+	if err != nil {
+		sendError(w, err)
+		return
+	}
+
+	// propagate trace headers
+	for _, h := range traceHeaders {
+		hv := req.Header.Get(h)
+		if hv == "" {
+			continue
+		}
+		serviceReq.Header.Set(h, hv)
+	}
+
+	resp, err := client.Do(serviceReq)
 	if err != nil {
 		sendError(w, err)
 		return
