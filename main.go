@@ -7,14 +7,15 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 )
 
 const (
-	ServiceURLFlag       = "service-url"
-	ListenAddressFlag    = "listen-address"
-	ServiceURLDefault    = "https://httpbin.org/headers"
-	ListenAddressDefault = ":9000"
+	serviceURLFlag       = "service-url"
+	listenAddressFlag    = "listen-address"
+	serviceURLDefault    = "https://httpbin.org/headers"
+	listenAddressDefault = ":9000"
 )
 
 var (
@@ -28,7 +29,9 @@ var (
 		"X-B3-ParentSpanId",
 		"X-B3-Sampled",
 		"X-B3-Flags",
+		"B3",
 	}
+	respWith503Counter int
 )
 
 func sendError(w http.ResponseWriter, err error) {
@@ -43,6 +46,61 @@ func sendError(w http.ResponseWriter, err error) {
 }
 
 func handleRequest(w http.ResponseWriter, req *http.Request) {
+	code := req.URL.Query().Get("code")
+	sleep := req.URL.Query().Get("sleep")
+	respWith503 := req.URL.Query().Get("respWith503")
+
+	// if code is not empty, return directly with this code. not call upstream serviceURL
+	if code != "" {
+		data := make(map[string]interface{})
+		data["time"] = time.Now().Format(time.RFC3339)
+		data["app"] = "simple-http"
+
+		codeInt, err := strconv.Atoi(code)
+		if err != nil {
+			codeInt = 200
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(codeInt)
+		json.NewEncoder(w).Encode(data)
+		return
+	}
+
+	// sleep for amount of sleep set
+	if sleep != "" {
+		sleepDuration, err := time.ParseDuration(sleep)
+		if err != nil {
+			sleepDuration = time.Second
+		}
+
+		time.Sleep(sleepDuration)
+	}
+
+	if respWith503 != "" {
+		respWith503Count, err := strconv.Atoi(respWith503)
+		if err != nil {
+			respWith503Count = 5
+		}
+
+		// if counter is less then count, response with 503
+		if respWith503Counter != respWith503Count {
+			respWith503Counter++
+			data := make(map[string]interface{})
+			data["time"] = time.Now().Format(time.RFC3339)
+			data["app"] = "simple-http"
+			data["count-503"] = respWith503Counter
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(data)
+			return
+		}
+
+		// reset to 0
+		respWith503Counter = 0
+	}
+
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
@@ -82,6 +140,7 @@ func handleRequest(w http.ResponseWriter, req *http.Request) {
 		data := make(map[string]interface{})
 		data["time"] = time.Now().Format(time.RFC3339)
 		data["app"] = "simple-http"
+		data["count-503"] = respWith503Counter
 		data["response"] = string(body)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -102,8 +161,8 @@ func handleRequest(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
-	flag.StringVar(&serviceURL, ServiceURLFlag, ServiceURLDefault, "service url to make GET request")
-	flag.StringVar(&listenAddress, ListenAddressFlag, ListenAddressDefault, "this server listen address")
+	flag.StringVar(&serviceURL, serviceURLFlag, serviceURLDefault, "service url to make GET request")
+	flag.StringVar(&listenAddress, listenAddressFlag, listenAddressDefault, "this server listen address")
 
 	flag.Parse()
 
